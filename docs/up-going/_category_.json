@@ -1,7 +1,8 @@
 {
 	"label": "Up & Going",
-	"position": 4,
+	"position": 3,
 	"link": {
-		"type": "generated-index"
+		"type": "generated-index",
+		"description": "This session in 1st edition, skip it if you already read Get Started."
 	}
 }

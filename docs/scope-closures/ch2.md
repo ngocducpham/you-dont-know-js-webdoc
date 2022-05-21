@@ -2,224 +2,315 @@
 sidebar_position: 2
 ---
 
-# Chapter 2: Lexical Scope
+# Chapter 2: Illustrating Lexical Scope
 
-In Chapter 1, we defined "scope" as the set of rules that govern how the _Engine_ can look up a variable by its identifier name and find it, either in the current _Scope_, or in any of the _Nested Scopes_ it's contained within.
+In Chapter 1, we explored how scope is determined during code compilation, a model called "lexical scope." The term "lexical" refers to the first stage of compilation (lexing/parsing).
 
-There are two predominant models for how scope works. The first of these is by far the most common, used by the vast majority of programming languages. It's called **Lexical Scope**, and we will examine it in-depth. The other model, which is still used by some languages (such as Bash scripting, some modes in Perl, etc.) is called **Dynamic Scope**.
+To properly _reason_ about our programs, it's important to have a solid conceptual foundation of how scope works. If we rely on guesses and intuition, we may accidentally get the right answers some of the time, but many other times we're far off. This isn't a recipe for success.
 
-Dynamic Scope is covered in Appendix A. I mention it here only to provide a contrast with Lexical Scope, which is the scope model that JavaScript employs.
+Like way back in grade school math class, getting the right answer isn't enough if we don't show the correct steps to get there! We need to build accurate and helpful mental models as foundation moving forward.
 
-## Lex-time
+This chapter will illustrate _scope_ with several metaphors. The goal here is to _think_ about how your program is handled by the JS engine in ways that more closely align with how the JS engine actually works.
 
-As we discussed in Chapter 1, the first traditional phase of a standard language compiler is called lexing (aka, tokenizing). If you recall, the lexing process examines a string of source code characters and assigns semantic meaning to the tokens as a result of some stateful parsing.
+## Marbles, and Buckets, and Bubbles... Oh My!
 
-It is this concept which provides the foundation to understand what lexical scope is and where the name comes from.
+One metaphor I've found effective in understanding scope is sorting colored marbles into buckets of their matching color.
 
-To define it somewhat circularly, lexical scope is scope that is defined at lexing time. In other words, lexical scope is based on where variables and blocks of scope are authored, by you, at write time, and thus is (mostly) set in stone by the time the lexer processes your code.
+Imagine you come across a pile of marbles, and notice that all the marbles are colored red, blue, or green. Let's sort all the marbles, dropping the red ones into a red bucket, green into a green bucket, and blue into a blue bucket. After sorting, when you later need a green marble, you already know the green bucket is where to go to get it.
 
-**Note:** We will see in a little bit there are some ways to cheat lexical scope, thereby modifying it after the lexer has passed by, but these are frowned upon. It is considered best practice to treat lexical scope as, in fact, lexical-only, and thus entirely author-time in nature.
+In this metaphor, the marbles are the variables in our program. The buckets are scopes (functions and blocks), which we just conceptually assign individual colors for our discussion purposes. The color of each marble is thus determined by which _color_ scope we find the marble originally created in.
 
-Let's consider this block of code:
-
-```js
-function foo(a) {
-	var b = a * 2;
-
-	function bar(c) {
-		console.log(a, b, c);
-	}
-
-	bar(b * 3);
-}
-
-foo(2); // 2 4 12
-```
-
-There are three nested scopes inherent in this code example. It may be helpful to think about these scopes as bubbles inside of each other.
-
-![Image](./img/fig2.png)
-
-**Bubble 1** encompasses the global scope, and has just one identifier in it: `foo`.
-
-**Bubble 2** encompasses the scope of `foo`, which includes the three identifiers: `a`, `bar` and `b`.
-
-**Bubble 3** encompasses the scope of `bar`, and it includes just one identifier: `c`.
-
-Scope bubbles are defined by where the blocks of scope are written, which one is nested inside the other, etc. In the next chapter, we'll discuss different units of scope, but for now, let's just assume that each function creates a new bubble of scope.
-
-The bubble for `bar` is entirely contained within the bubble for `foo`, because (and only because) that's where we chose to define the function `bar`.
-
-Notice that these nested bubbles are strictly nested. We're not talking about Venn diagrams where the bubbles can cross boundaries. In other words, no bubble for some function can simultaneously exist (partially) inside two other outer scope bubbles, just as no function can partially be inside each of two parent functions.
-
-### Look-ups
-
-The structure and relative placement of these scope bubbles fully explains to the _Engine_ all the places it needs to look to find an identifier.
-
-In the above code snippet, the _Engine_ executes the `console.log(..)` statement and goes looking for the three referenced variables `a`, `b`, and `c`. It first starts with the innermost scope bubble, the scope of the `bar(..)` function. It won't find `a` there, so it goes up one level, out to the next nearest scope bubble, the scope of `foo(..)`. It finds `a` there, and so it uses that `a`. Same thing for `b`. But `c`, it does find inside of `bar(..)`.
-
-Had there been a `c` both inside of `bar(..)` and inside of `foo(..)`, the `console.log(..)` statement would have found and used the one in `bar(..)`, never getting to the one in `foo(..)`.
-
-**Scope look-up stops once it finds the first match**. The same identifier name can be specified at multiple layers of nested scope, which is called "shadowing" (the inner identifier "shadows" the outer identifier). Regardless of shadowing, scope look-up always starts at the innermost scope being executed at the time, and works its way outward/upward until the first match, and stops.
-
-**Note:** Global variables are also automatically properties of the global object (`window` in browsers, etc.), so it _is_ possible to reference a global variable not directly by its lexical name, but instead indirectly as a property reference of the global object.
+Let's annotate the running program example from Chapter 1 with scope color labels:
 
 ```js
-window.a;
-```
+// outer/global scope: RED
 
-This technique gives access to a global variable which would otherwise be inaccessible due to it being shadowed. However, non-global shadowed variables cannot be accessed.
+var students = [
+	{ id: 14, name: 'Kyle' },
+	{ id: 73, name: 'Suzy' },
+	{ id: 112, name: 'Frank' },
+	{ id: 6, name: 'Sarah' }
+];
 
-No matter _where_ a function is invoked from, or even _how_ it is invoked, its lexical scope is **only** defined by where the function was declared.
+function getStudentName(studentID) {
+	// function scope: BLUE
 
-The lexical scope look-up process _only_ applies to first-class identifiers, such as the `a`, `b`, and `c`. If you had a reference to `foo.bar.baz` in a piece of code, the lexical scope look-up would apply to finding the `foo` identifier, but once it locates that variable, object property-access rules take over to resolve the `bar` and `baz` properties, respectively.
+	for (let student of students) {
+		// loop scope: GREEN
 
-## Cheating Lexical
-
-If lexical scope is defined only by where a function is declared, which is entirely an author-time decision, how could there possibly be a way to "modify" (aka, cheat) lexical scope at run-time?
-
-JavaScript has two such mechanisms. Both of them are equally frowned-upon in the wider community as bad practices to use in your code. But the typical arguments against them are often missing the most important point: **cheating lexical scope leads to poorer performance.**
-
-Before I explain the performance issue, though, let's look at how these two mechanisms work.
-
-### `eval`
-
-The `eval(..)` function in JavaScript takes a string as an argument, and treats the contents of the string as if it had actually been authored code at that point in the program. In other words, you can programmatically generate code inside of your authored code, and run the generated code as if it had been there at author time.
-
-Evaluating `eval(..)` (pun intended) in that light, it should be clear how `eval(..)` allows you to modify the lexical scope environment by cheating and pretending that author-time (aka, lexical) code was there all along.
-
-On subsequent lines of code after an `eval(..)` has executed, the _Engine_ will not "know" or "care" that the previous code in question was dynamically interpreted and thus modified the lexical scope environment. The _Engine_ will simply perform its lexical scope look-ups as it always does.
-
-Consider the following code:
-
-```js
-function foo(str, a) {
-	eval(str); // cheating!
-	console.log(a, b);
-}
-
-var b = 2;
-
-foo('var b = 3;', 1); // 1 3
-```
-
-The string `"var b = 3;"` is treated, at the point of the `eval(..)` call, as code that was there all along. Because that code happens to declare a new variable `b`, it modifies the existing lexical scope of `foo(..)`. In fact, as mentioned above, this code actually creates variable `b` inside of `foo(..)` that shadows the `b` that was declared in the outer (global) scope.
-
-When the `console.log(..)` call occurs, it finds both `a` and `b` in the scope of `foo(..)`, and never finds the outer `b`. Thus, we print out "1 3" instead of "1 2" as would have normally been the case.
-
-**Note:** In this example, for simplicity's sake, the string of "code" we pass in was a fixed literal. But it could easily have been programmatically created by adding characters together based on your program's logic. `eval(..)` is usually used to execute dynamically created code, as dynamically evaluating essentially static code from a string literal would provide no real benefit to just authoring the code directly.
-
-By default, if a string of code that `eval(..)` executes contains one or more declarations (either variables or functions), this action modifies the existing lexical scope in which the `eval(..)` resides. Technically, `eval(..)` can be invoked "indirectly", through various tricks (beyond our discussion here), which causes it to instead execute in the context of the global scope, thus modifying it. But in either case, `eval(..)` can at runtime modify an author-time lexical scope.
-
-**Note:** `eval(..)` when used in a strict-mode program operates in its own lexical scope, which means declarations made inside of the `eval()` do not actually modify the enclosing scope.
-
-```js
-function foo(str) {
-	'use strict';
-	eval(str);
-	console.log(a); // ReferenceError: a is not defined
-}
-
-foo('var a = 2');
-```
-
-There are other facilities in JavaScript which amount to a very similar effect to `eval(..)`. `setTimeout(..)` and `setInterval(..)` _can_ take a string for their respective first argument, the contents of which are `eval`uated as the code of a dynamically-generated function. This is old, legacy behavior and long-since deprecated. Don't do it!
-
-The `new Function(..)` function constructor similarly takes a string of code in its **last** argument to turn into a dynamically-generated function (the first argument(s), if any, are the named parameters for the new function). This function-constructor syntax is slightly safer than `eval(..)`, but it should still be avoided in your code.
-
-The use-cases for dynamically generating code inside your program are incredibly rare, as the performance degradations are almost never worth the capability.
-
-### `with`
-
-The other frowned-upon (and now deprecated!) feature in JavaScript which cheats lexical scope is the `with` keyword. There are multiple valid ways that `with` can be explained, but I will choose here to explain it from the perspective of how it interacts with and affects lexical scope.
-
-`with` is typically explained as a short-hand for making multiple property references against an object _without_ repeating the object reference itself each time.
-
-For example:
-
-```js
-var obj = {
-	a: 1,
-	b: 2,
-	c: 3
-};
-
-// more "tedious" to repeat "obj"
-obj.a = 2;
-obj.b = 3;
-obj.c = 4;
-
-// "easier" short-hand
-with (obj) {
-	a = 3;
-	b = 4;
-	c = 5;
-}
-```
-
-However, there's much more going on here than just a convenient short-hand for object property access. Consider:
-
-```js
-function foo(obj) {
-	with (obj) {
-		a = 2;
+		if (student.id == studentID) {
+			return student.name;
+		}
 	}
 }
 
-var o1 = {
-	a: 3
-};
-
-var o2 = {
-	b: 3
-};
-
-foo(o1);
-console.log(o1.a); // 2
-
-foo(o2);
-console.log(o2.a); // undefined
-console.log(a); // 2 -- Oops, leaked global!
+var nextStudent = getStudentName(73);
+console.log(nextStudent); // Suzy
 ```
 
-In this code example, two objects `o1` and `o2` are created. One has an `a` property, and the other does not. The `foo(..)` function takes an object reference `obj` as an argument, and calls `with (obj) { .. }` on the reference. Inside the `with` block, we make what appears to be a normal lexical reference to a variable `a`, an LHS reference in fact (see Chapter 1), to assign to it the value of `2`.
+We've designated three scope colors with code comments: RED (outermost global scope), BLUE (scope of function `getStudentName(..)`), and GREEN (scope of/inside the `for` loop). But it still may be difficult to recognize the boundaries of these scope buckets when looking at a code listing.
 
-When we pass in `o1`, the `a = 2` assignment finds the property `o1.a` and assigns it the value `2`, as reflected in the subsequent `console.log(o1.a)` statement. However, when we pass in `o2`, since it does not have an `a` property, no such property is created, and `o2.a` remains `undefined`.
+Figure 2 helps visualize the boundaries of the scopes by drawing colored bubbles (aka, buckets) around each:
 
-But then we note a peculiar side-effect, the fact that a global variable `a` was created by the `a = 2` assignment. How can this be?
+![](./images/fig2.png)
 
-The `with` statement takes an object, one which has zero or more properties, and **treats that object as if _it_ is a wholly separate lexical scope**, and thus the object's properties are treated as lexically defined identifiers in that "scope".
+1. **Bubble 1** (RED) encompasses the global scope, which holds three identifiers/variables: `students` (line 1), `getStudentName` (line 8), and `nextStudent` (line 16).
 
-**Note:** Even though a `with` block treats an object like a lexical scope, a normal `var` declaration inside that `with` block will not be scoped to that `with` block, but instead the containing function scope.
+2. **Bubble 2** (BLUE) encompasses the scope of the function `getStudentName(..)` (line 8), which holds just one identifier/variable: the parameter `studentID` (line 8).
 
-While the `eval(..)` function can modify existing lexical scope if it takes a string of code with one or more declarations in it, the `with` statement actually creates a **whole new lexical scope** out of thin air, from the object you pass to it.
+3. **Bubble 3** (GREEN) encompasses the scope of the `for`-loop (line 9), which holds just one identifier/variable: `student` (line 9).
 
-Understood in this way, the "scope" declared by the `with` statement when we passed in `o1` was `o1`, and that "scope" had an "identifier" in it which corresponds to the `o1.a` property. But when we used `o2` as the "scope", it had no such `a` "identifier" in it, and so the normal rules of LHS identifier look-up (see Chapter 1) occurred.
+| NOTE:                                                                                                                                                                                                        |
+| :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Technically, the parameter `studentID` is not exactly in the BLUE(2) scope. We'll unwind that confusion in "Implied Scopes" in Appendix A. For now, it's close enough to label `studentID` a BLUE(2) marble. |
 
-Neither the "scope" of `o2`, nor the scope of `foo(..)`, nor the global scope even, has an `a` identifier to be found, so when `a = 2` is executed, it results in the automatic-global being created (since we're in non-strict mode).
+Scope bubbles are determined during compilation based on where the functions/blocks of scope are written, the nesting inside each other, and so on. Each scope bubble is entirely contained within its parent scope bubble—a scope is never partially in two different outer scopes.
 
-It is a strange sort of mind-bending thought to see `with` turning, at runtime, an object and its properties into a "scope" _with_ "identifiers". But that is the clearest explanation I can give for the results we see.
+Each marble (variable/identifier) is colored based on which bubble (bucket) it's declared in, not the color of the scope it may be accessed from (e.g., `students` on line 9 and `studentID` on line 10).
 
-**Note:** In addition to being a bad idea to use, both `eval(..)` and `with` are affected (restricted) by Strict Mode. `with` is outright disallowed, whereas various forms of indirect or unsafe `eval(..)` are disallowed while retaining the core functionality.
+| NOTE:                                                                                                                                                                                                                                                                                                                                          |
+| :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Remember we asserted in Chapter 1 that `id`, `name`, and `log` are all properties, not variables; in other words, they're not marbles in buckets, so they don't get colored based on any the rules we're discussing in this book. To understand how such property accesses are handled, see the third book in the series, _Objects & Classes_. |
 
-### Performance
+As the JS engine processes a program (during compilation), and finds a declaration for a variable, it essentially asks, "Which _color_ scope (bubble or bucket) am I currently in?" The variable is designated as that same _color_, meaning it belongs to that bucket/bubble.
 
-Both `eval(..)` and `with` cheat the otherwise author-time defined lexical scope by modifying or creating new lexical scope at runtime.
+The GREEN(3) bucket is wholly nested inside of the BLUE(2) bucket, and similarly the BLUE(2) bucket is wholly nested inside the RED(1) bucket. Scopes can nest inside each other as shown, to any depth of nesting as your program needs.
 
-So, what's the big deal, you ask? If they offer more sophisticated functionality and coding flexibility, aren't these _good_ features? **No.**
+References (non-declarations) to variables/identifiers are allowed if there's a matching declaration either in the current scope, or any scope above/outside the current scope, but not with declarations from lower/nested scopes.
 
-The JavaScript _Engine_ has a number of performance optimizations that it performs during the compilation phase. Some of these boil down to being able to essentially statically analyze the code as it lexes, and pre-determine where all the variable and function declarations are, so that it takes less effort to resolve identifiers during execution.
+An expression in the RED(1) bucket only has access to RED(1) marbles, **not** BLUE(2) or GREEN(3). An expression in the BLUE(2) bucket can reference either BLUE(2) or RED(1) marbles, **not** GREEN(3). And an expression in the GREEN(3) bucket has access to RED(1), BLUE(2), and GREEN(3) marbles.
 
-But if the _Engine_ finds an `eval(..)` or `with` in the code, it essentially has to _assume_ that all its awareness of identifier location may be invalid, because it cannot know at lexing time exactly what code you may pass to `eval(..)` to modify the lexical scope, or the contents of the object you may pass to `with` to create a new lexical scope to be consulted.
+We can conceptualize the process of determining these non-declaration marble colors during runtime as a lookup. Since the `students` variable reference in the `for`-loop statement on line 9 is not a declaration, it has no color. So we ask the current BLUE(2) scope bucket if it has a marble matching that name. Since it doesn't, the lookup continues with the next outer/containing scope: RED(1). The RED(1) bucket has a marble of the name `students`, so the loop-statement's `students` variable reference is determined to be a RED(1) marble.
 
-In other words, in the pessimistic sense, most of those optimizations it _would_ make are pointless if `eval(..)` or `with` are present, so it simply doesn't perform the optimizations _at all_.
+The `if (student.id == studentID)` statement on line 10 is similarly determined to reference a GREEN(3) marble named `student` and a BLUE(2) marble `studentID`.
 
-Your code will almost certainly tend to run slower simply by the fact that you include an `eval(..)` or `with` anywhere in the code. No matter how smart the _Engine_ may be about trying to limit the side-effects of these pessimistic assumptions, **there's no getting around the fact that without the optimizations, code runs slower.**
+| NOTE:                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The JS engine doesn't generally determine these marble colors during runtime; the "lookup" here is a rhetorical device to help you understand the concepts. During compilation, most or all variable references will match already-known scope buckets, so their color is already determined, and stored with each marble reference to avoid unnecessary lookups as the program runs. More on this nuance in Chapter 3. |
 
-## Review (TL;DR)
+The key take-aways from marbles & buckets (and bubbles!):
 
-Lexical scope means that scope is defined by author-time decisions of where functions are declared. The lexing phase of compilation is essentially able to know where and how all identifiers are declared, and thus predict how they will be looked-up during execution.
+-   Variables are declared in specific scopes, which can be thought of as colored marbles from matching-color buckets.
 
-Two mechanisms in JavaScript can "cheat" lexical scope: `eval(..)` and `with`. The former can modify existing lexical scope (at runtime) by evaluating a string of "code" which has one or more declarations in it. The latter essentially creates a whole new lexical scope (again, at runtime) by treating an object reference _as_ a "scope" and that object's properties as scoped identifiers.
+-   Any variable reference that appears in the scope where it was declared, or appears in any deeper nested scopes, will be labeled a marble of that same color—unless an intervening scope "shadows" the variable declaration; see "Shadowing" in Chapter 3.
 
-The downside to these mechanisms is that it defeats the _Engine_'s ability to perform compile-time optimizations regarding scope look-up, because the _Engine_ has to assume pessimistically that such optimizations will be invalid. Code _will_ run slower as a result of using either feature. **Don't use them.**
+-   The determination of colored buckets, and the marbles they contain, happens during compilation. This information is used for variable (marble color) "lookups" during code execution.
+
+## A Conversation Among Friends
+
+Another useful metaphor for the process of analyzing variables and the scopes they come from is to imagine various conversations that occur inside the engine as code is processed and then executed. We can "listen in" on these conversations to get a better conceptual foundation for how scopes work.
+
+Let's now meet the members of the JS engine that will have conversations as they process our program:
+
+-   _Engine_: responsible for start-to-finish compilation and execution of our JavaScript program.
+
+-   _Compiler_: one of _Engine_'s friends; handles all the dirty work of parsing and code-generation (see previous section).
+
+-   _Scope Manager_: another friend of _Engine_; collects and maintains a lookup list of all the declared variables/identifiers, and enforces a set of rules as to how these are accessible to currently executing code.
+
+For you to _fully understand_ how JavaScript works, you need to begin to _think_ like _Engine_ (and friends) think, ask the questions they ask, and answer their questions likewise.
+
+To explore these conversations, recall again our running program example:
+
+```js
+var students = [
+	{ id: 14, name: 'Kyle' },
+	{ id: 73, name: 'Suzy' },
+	{ id: 112, name: 'Frank' },
+	{ id: 6, name: 'Sarah' }
+];
+
+function getStudentName(studentID) {
+	for (let student of students) {
+		if (student.id == studentID) {
+			return student.name;
+		}
+	}
+}
+
+var nextStudent = getStudentName(73);
+
+console.log(nextStudent);
+// Suzy
+```
+
+Let's examine how JS is going to process that program, specifically starting with the first statement. The array and its contents are just basic JS value literals (and thus unaffected by any scoping concerns), so our focus here will be on the `var students = [ .. ]` declaration and initialization-assignment parts.
+
+We typically think of that as a single statement, but that's not how our friend _Engine_ sees it. In fact, JS treats these as two distinct operations, one which _Compiler_ will handle during compilation, and the other which _Engine_ will handle during execution.
+
+The first thing _Compiler_ will do with this program is perform lexing to break it down into tokens, which it will then parse into a tree (AST).
+
+Once _Compiler_ gets to code generation, there's more detail to consider than may be obvious. A reasonable assumption would be that _Compiler_ will produce code for the first statement such as: "Allocate memory for a variable, label it `students`, then stick a reference to the array into that variable." But that's not the whole story.
+
+Here's the steps _Compiler_ will follow to handle that statement:
+
+1. Encountering `var students`, _Compiler_ will ask _Scope Manager_ to see if a variable named `students` already exists for that particular scope bucket. If so, _Compiler_ would ignore this declaration and move on. Otherwise, _Compiler_ will produce code that (at execution time) asks _Scope Manager_ to create a new variable called `students` in that scope bucket.
+
+2. _Compiler_ then produces code for _Engine_ to later execute, to handle the `students = []` assignment. The code _Engine_ runs will first ask _Scope Manager_ if there is a variable called `students` accessible in the current scope bucket. If not, _Engine_ keeps looking elsewhere (see "Nested Scope" below). Once _Engine_ finds a variable, it assigns the reference of the `[ .. ]` array to it.
+
+In conversational form, the first phase of compilation for the program might play out between _Compiler_ and _Scope Manager_ like this:
+
+> **_Compiler_**: Hey, _Scope Manager_ (of the global scope), I found a formal declaration for an identifier called `students`, ever heard of it?
+
+> **_(Global) Scope Manager_**: Nope, never heard of it, so I just created it for you.
+
+> **_Compiler_**: Hey, _Scope Manager_, I found a formal declaration for an identifier called `getStudentName`, ever heard of it?
+
+> **_(Global) Scope Manager_**: Nope, but I just created it for you.
+
+> **_Compiler_**: Hey, _Scope Manager_, `getStudentName` points to a function, so we need a new scope bucket.
+
+> **_(Function) Scope Manager_**: Got it, here's the scope bucket.
+
+> **_Compiler_**: Hey, _Scope Manager_ (of the function), I found a formal parameter declaration for `studentID`, ever heard of it?
+
+> **_(Function) Scope Manager_**: Nope, but now it's created in this scope.
+
+> **_Compiler_**: Hey, _Scope Manager_ (of the function), I found a `for`-loop that will need its own scope bucket.
+
+> ...
+
+The conversation is a question-and-answer exchange, where **Compiler** asks the current _Scope Manager_ if an encountered identifier declaration has already been encountered. If "no," _Scope Manager_ creates that variable in that scope. If the answer is "yes," then it's effectively skipped over since there's nothing more for that _Scope Manager_ to do.
+
+_Compiler_ also signals when it runs across functions or block scopes, so that a new scope bucket and _Scope Manager_ can be instantiated.
+
+Later, when it comes to execution of the program, the conversation will shift to _Engine_ and _Scope Manager_, and might play out like this:
+
+> **_Engine_**: Hey, _Scope Manager_ (of the global scope), before we begin, can you look up the identifier `getStudentName` so I can assign this function to it?
+
+> **_(Global) Scope Manager_**: Yep, here's the variable.
+
+> **_Engine_**: Hey, _Scope Manager_, I found a _target_ reference for `students`, ever heard of it?
+
+> **_(Global) Scope Manager_**: Yes, it was formally declared for this scope, so here it is.
+
+> **_Engine_**: Thanks, I'm initializing `students` to `undefined`, so it's ready to use.
+
+> Hey, _Scope Manager_ (of the global scope), I found a _target_ reference for `nextStudent`, ever heard of it?
+
+> **_(Global) Scope Manager_**: Yes, it was formally declared for this scope, so here it is.
+
+> **_Engine_**: Thanks, I'm initializing `nextStudent` to `undefined`, so it's ready to use.
+
+> Hey, _Scope Manager_ (of the global scope), I found a _source_ reference for `getStudentName`, ever heard of it?
+
+> **_(Global) Scope Manager_**: Yes, it was formally declared for this scope. Here it is.
+
+> **_Engine_**: Great, the value in `getStudentName` is a function, so I'm going to execute it.
+
+> **_Engine_**: Hey, _Scope Manager_, now we need to instantiate the function's scope.
+
+> ...
+
+This conversation is another question-and-answer exchange, where _Engine_ first asks the current _Scope Manager_ to look up the hoisted `getStudentName` identifier, so as to associate the function with it. _Engine_ then proceeds to ask _Scope Manager_ about the _target_ reference for `students`, and so on.
+
+To review and summarize how a statement like `var students = [ .. ]` is processed, in two distinct steps:
+
+1. _Compiler_ sets up the declaration of the scope variable (since it wasn't previously declared in the current scope).
+
+2. While _Engine_ is executing, to process the assignment part of the statement, _Engine_ asks _Scope Manager_ to look up the variable, initializes it to `undefined` so it's ready to use, and then assigns the array value to it.
+
+## Nested Scope
+
+When it comes time to execute the `getStudentName()` function, _Engine_ asks for a _Scope Manager_ instance for that function's scope, and it will then proceed to look up the parameter (`studentID`) to assign the `73` argument value to, and so on.
+
+The function scope for `getStudentName(..)` is nested inside the global scope. The block scope of the `for`-loop is similarly nested inside that function scope. Scopes can be lexically nested to any arbitrary depth as the program defines.
+
+Each scope gets its own _Scope Manager_ instance each time that scope is executed (one or more times). Each scope automatically has all its identifiers registered at the start of the scope being executed (this is called "variable hoisting"; see Chapter 5).
+
+At the beginning of a scope, if any identifier came from a `function` declaration, that variable is automatically initialized to its associated function reference. And if any identifier came from a `var` declaration (as opposed to `let`/`const`), that variable is automatically initialized to `undefined` so that it can be used; otherwise, the variable remains uninitialized (aka, in its "TDZ," see Chapter 5) and cannot be used until its full declaration-and-initialization are executed.
+
+In the `for (let student of students) {` statement, `students` is a _source_ reference that must be looked up. But how will that lookup be handled, since the scope of the function will not find such an identifier?
+
+To explain, let's imagine that bit of conversation playing out like this:
+
+> **_Engine_**: Hey, _Scope Manager_ (for the function), I have a _source_ reference for `students`, ever heard of it?
+
+> **_(Function) Scope Manager_**: Nope, never heard of it. Try the next outer scope.
+
+> **_Engine_**: Hey, _Scope Manager_ (for the global scope), I have a _source_ reference for `students`, ever heard of it?
+
+> **_(Global) Scope Manager_**: Yep, it was formally declared, here it is.
+
+> ...
+
+One of the key aspects of lexical scope is that any time an identifier reference cannot be found in the current scope, the next outer scope in the nesting is consulted; that process is repeated until an answer is found or there are no more scopes to consult.
+
+### Lookup Failures
+
+When _Engine_ exhausts all _lexically available_ scopes (moving outward) and still cannot resolve the lookup of an identifier, an error condition then exists. However, depending on the mode of the program (strict-mode or not) and the role of the variable (i.e., _target_ vs. _source_; see Chapter 1), this error condition will be handled differently.
+
+#### Undefined Mess
+
+If the variable is a _source_, an unresolved identifier lookup is considered an undeclared (unknown, missing) variable, which always results in a `ReferenceError` being thrown. Also, if the variable is a _target_, and the code at that moment is running in strict-mode, the variable is considered undeclared and similarly throws a `ReferenceError`.
+
+The error message for an undeclared variable condition, in most JS environments, will look like, "Reference Error: XYZ is not defined." The phrase "not defined" seems almost identical to the word "undefined," as far as the English language goes. But these two are very different in JS, and this error message unfortunately creates a persistent confusion.
+
+"Not defined" really means "not declared"—or, rather, "undeclared," as in a variable that has no matching formal declaration in any _lexically available_ scope. By contrast, "undefined" really means a variable was found (declared), but the variable otherwise has no other value in it at the moment, so it defaults to the `undefined` value.
+
+To perpetuate the confusion even further, JS's `typeof` operator returns the string `"undefined"` for variable references in either state:
+
+```js
+var studentName;
+typeof studentName; // "undefined"
+
+typeof doesntExist; // "undefined"
+```
+
+These two variable references are in very different conditions, but JS sure does muddy the waters. The terminology mess is confusing and terribly unfortunate. Unfortunately, JS developers just have to pay close attention to not mix up _which kind_ of "undefined" they're dealing with!
+
+#### Global... What!?
+
+If the variable is a _target_ and strict-mode is not in effect, a confusing and surprising legacy behavior kicks in. The troublesome outcome is that the global scope's _Scope Manager_ will just create an **accidental global variable** to fulfill that target assignment!
+
+Consider:
+
+```js
+function getStudentName() {
+	// assignment to an undeclared variable :(
+	nextStudent = 'Suzy';
+}
+
+getStudentName();
+
+console.log(nextStudent);
+// "Suzy" -- oops, an accidental-global variable!
+```
+
+Here's how that _conversation_ will proceed:
+
+> **_Engine_**: Hey, _Scope Manager_ (for the function), I have a _target_ reference for `nextStudent`, ever heard of it?
+
+> **_(Function) Scope Manager_**: Nope, never heard of it. Try the next outer scope.
+
+> **_Engine_**: Hey, _Scope Manager_ (for the global scope), I have a _target_ reference for `nextStudent`, ever heard of it?
+
+> **_(Global) Scope Manager_**: Nope, but since we're in non-strict-mode, I helped you out and just created a global variable for you, here it is!
+
+Yuck.
+
+This sort of accident (almost certain to lead to bugs eventually) is a great example of the beneficial protections offered by strict-mode, and why it's such a bad idea _not_ to be using strict-mode. In strict-mode, the **_Global Scope Manager_** would instead have responded:
+
+> **_(Global) Scope Manager_**: Nope, never heard of it. Sorry, I've got to throw a `ReferenceError`.
+
+Assigning to a never-declared variable _is_ an error, so it's right that we would receive a `ReferenceError` here.
+
+Never rely on accidental global variables. Always use strict-mode, and always formally declare your variables. You'll then get a helpful `ReferenceError` if you ever mistakenly try to assign to a not-declared variable.
+
+### Building On Metaphors
+
+To visualize nested scope resolution, I prefer yet another metaphor, an office building, as in Figure 3:
+
+![](./images/fig3.png)
+
+The building represents our program's nested scope collection. The first floor of the building represents the currently executing scope. The top level of the building is the global scope.
+
+You resolve a _target_ or _source_ variable reference by first looking on the current floor, and if you don't find it, taking the elevator to the next floor (i.e., an outer scope), looking there, then the next, and so on. Once you get to the top floor (the global scope), you either find what you're looking for, or you don't. But you have to stop regardless.
+
+## Continue the Conversation
+
+By this point, you should be developing richer mental models for what scope is and how the JS engine determines and uses it from your code.
+
+Before _continuing_, go find some code in one of your projects and run through these conversations. Seriously, actually speak out loud. Find a friend and practice each role with them. If either of you find yourself confused or tripped up, spend more time reviewing this material.
+
+As we move (up) to the next (outer) chapter, we'll explore how the lexical scopes of a program are connected in a chain.

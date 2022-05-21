@@ -2,311 +2,307 @@
 sidebar_position: 1
 ---
 
-# Chapter 1: What is Scope?
+# Chapter 1: What's the Scope?
 
-One of the most fundamental paradigms of nearly all programming languages is the ability to store values in variables, and later retrieve or modify those values. In fact, the ability to store values and pull values out of variables is what gives a program _state_.
+By the time you've written your first few programs, you're likely getting somewhat comfortable with creating variables and storing values in them. Working with variables is one of the most foundational things we do in programming!
 
-Without such a concept, a program could perform some tasks, but they would be extremely limited and not terribly interesting.
+But you may not have considered very closely the underlying mechanisms used by the engine to organize and manage these variables. I don't mean how the memory is allocated on the computer, but rather: how does JS know which variables are accessible by any given statement, and how does it handle two variables of the same name?
 
-But the inclusion of variables into our program begets the most interesting questions we will now address: where do those variables _live_? In other words, where are they stored? And, most importantly, how does our program find them when it needs them?
+The answers to questions like these take the form of well-defined rules called scope. This book will dig through all aspects of scope—how it works, what it's useful for, gotchas to avoid—and then point toward common scope patterns that guide the structure of programs.
 
-These questions speak to the need for a well-defined set of rules for storing variables in some location, and for finding those variables at a later time. We'll call that set of rules: _Scope_.
+Our first step is to uncover how the JS engine processes our program **before** it runs.
 
-But, where and how do these _Scope_ rules get set?
+## About This Book
 
-## Compiler Theory
+Welcome to book 2 in the _You Don't Know JS Yet_ series! If you already finished _Get Started_ (the first book), you're in the right spot! If not, before you proceed I encourage you to _start there_ for the best foundation.
 
-It may be self-evident, or it may be surprising, depending on your level of interaction with various languages, but despite the fact that JavaScript falls under the general category of "dynamic" or "interpreted" languages, it is in fact a compiled language. It is _not_ compiled well in advance, as are many traditionally-compiled languages, nor are the results of compilation portable among various distributed systems.
+Our focus will be the first of three pillars in the JS language: the scope system and its function closures, as well as the power of the module design pattern.
 
-But, nevertheless, the JavaScript engine performs many of the same steps, albeit in more sophisticated ways than we may commonly be aware, of any traditional language-compiler.
+JS is typically classified as an interpreted scripting language, so it's assumed by most that JS programs are processed in a single, top-down pass. But JS is in fact parsed/compiled in a separate phase **before execution begins**. The code author's decisions on where to place variables, functions, and blocks with respect to each other are analyzed according to the rules of scope, during the initial parsing/compilation phase. The resulting scope structure is generally unaffected by runtime conditions.
 
-In a traditional compiled-language process, a chunk of source code, your program, will undergo typically three steps _before_ it is executed, roughly called "compilation":
+JS functions are themselves first-class values; they can be assigned and passed around just like numbers or strings. But since these functions hold and access variables, they maintain their original scope no matter where in the program the functions are eventually executed. This is called closure.
+
+Modules are a code organization pattern characterized by public methods that have privileged access (via closure) to hidden variables and functions in the internal scope of the module.
+
+## Compiled vs. Interpreted
+
+You may have heard of _code compilation_ before, but perhaps it seems like a mysterious black box where source code slides in one end and executable programs pop out the other.
+
+It's not mysterious or magical, though. Code compilation is a set of steps that process the text of your code and turn it into a list of instructions the computer can understand. Typically, the whole source code is transformed at once, and those resulting instructions are saved as output (usually in a file) that can later be executed.
+
+You also may have heard that code can be _interpreted_, so how is that different from being _compiled_?
+
+Interpretation performs a similar task to compilation, in that it transforms your program into machine-understandable instructions. But the processing model is different. Unlike a program being compiled all at once, with interpretation the source code is transformed line by line; each line or statement is executed before immediately proceeding to processing the next line of the source code.
+
+![](./images/fig1.png)
+
+Figure 1 illustrates compilation vs. interpretation of programs.
+
+Are these two processing models mutually exclusive? Generally, yes. However, the issue is more nuanced, because interpretation can actually take other forms than just operating line by line on source code text. Modern JS engines actually employ numerous variations of both compilation and interpretation in the handling of JS programs.
+
+Recall that we surveyed this topic in Chapter 1 of the _Get Started_ book. Our conclusion there is that JS is most accurately portrayed as a **compiled language**. For the benefit of readers here, the following sections will revisit and expand on that assertion.
+
+## Compiling Code
+
+But first, why does it even matter whether JS is compiled or not?
+
+Scope is primarily determined during compilation, so understanding how compilation and execution relate is key in mastering scope.
+
+In classic compiler theory, a program is processed by a compiler in three basic stages:
 
 1. **Tokenizing/Lexing:** breaking up a string of characters into meaningful (to the language) chunks, called tokens. For instance, consider the program: `var a = 2;`. This program would likely be broken up into the following tokens: `var`, `a`, `=`, `2`, and `;`. Whitespace may or may not be persisted as a token, depending on whether it's meaningful or not.
 
-    **Note:** The difference between tokenizing and lexing is subtle and academic, but it centers on whether or not these tokens are identified in a _stateless_ or _stateful_ way. Put simply, if the tokenizer were to invoke stateful parsing rules to figure out whether `a` should be considered a distinct token or just part of another token, _that_ would be **lexing**.
+    (The difference between tokenizing and lexing is subtle and academic, but it centers on whether or not these tokens are identified in a _stateless_ or _stateful_ way. Put simply, if the tokenizer were to invoke stateful parsing rules to figure out whether `a` should be considered a distinct token or just part of another token, _that_ would be **lexing**.)
 
-2. **Parsing:** taking a stream (array) of tokens and turning it into a tree of nested elements, which collectively represent the grammatical structure of the program. This tree is called an "AST" (<b>A</b>bstract <b>S</b>yntax <b>T</b>ree).
+2. **Parsing:** taking a stream (array) of tokens and turning it into a tree of nested elements, which collectively represent the grammatical structure of the program. This is called an Abstract Syntax Tree (AST).
 
-    The tree for `var a = 2;` might start with a top-level node called `VariableDeclaration`, with a child node called `Identifier` (whose value is `a`), and another child called `AssignmentExpression` which itself has a child called `NumericLiteral` (whose value is `2`).
+    For example, the tree for `var a = 2;` might start with a top-level node called `VariableDeclaration`, with a child node called `Identifier` (whose value is `a`), and another child called `AssignmentExpression` which itself has a child called `NumericLiteral` (whose value is `2`).
 
-3. **Code-Generation:** the process of taking an AST and turning it into executable code. This part varies greatly depending on the language, the platform it's targeting, etc.
+3. **Code Generation:** taking an AST and turning it into executable code. This part varies greatly depending on the language, the platform it's targeting, and other factors.
 
-    So, rather than get mired in details, we'll just handwave and say that there's a way to take our above described AST for `var a = 2;` and turn it into a set of machine instructions to actually _create_ a variable called `a` (including reserving memory, etc.), and then store a value into `a`.
+    The JS engine takes the just described AST for `var a = 2;` and turns it into a set of machine instructions to actually _create_ a variable called `a` (including reserving memory, etc.), and then store a value into `a`.
 
-    **Note:** The details of how the engine manages system resources are deeper than we will dig, so we'll just take it for granted that the engine is able to create and store variables as needed.
+| NOTE:                                                                                                                                                                                                                                                          |
+| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The implementation details of a JS engine (utilizing system memory resources, etc.) is much deeper than we will dig here. We'll keep our focus on the observable behavior of our programs and let the JS engine manage those deeper system-level abstractions. |
 
-The JavaScript engine is vastly more complex than _just_ those three steps, as are most other language compilers. For instance, in the process of parsing and code-generation, there are certainly steps to optimize the performance of the execution, including collapsing redundant elements, etc.
+The JS engine is vastly more complex than _just_ these three stages. In the process of parsing and code generation, there are steps to optimize the performance of the execution (i.e., collapsing redundant elements). In fact, code can even be re-compiled and re-optimized during the progression of execution.
 
-So, I'm painting only with broad strokes here. But I think you'll see shortly why _these_ details we _do_ cover, even at a high level, are relevant.
+So, I'm painting only with broad strokes here. But you'll see shortly why _these_ details we _do_ cover, even at a high level, are relevant.
 
-For one thing, JavaScript engines don't get the luxury (like other language compilers) of having plenty of time to optimize, because JavaScript compilation doesn't happen in a build step ahead of time, as with other languages.
+JS engines don't have the luxury of an abundance of time to perform their work and optimizations, because JS compilation doesn't happen in a build step ahead of time, as with other languages. It usually must happen in mere microseconds (or less!) right before the code is executed. To ensure the fastest performance under these constraints, JS engines use all kinds of tricks (like JITs, which lazy compile and even hot re-compile); these are well beyond the "scope" of our discussion here.
 
-For JavaScript, the compilation that occurs happens, in many cases, mere microseconds (or less!) before the code is executed. To ensure the fastest performance, JS engines use all kinds of tricks (like JITs, which lazy compile and even hot re-compile, etc.) which are well beyond the "scope" of our discussion here.
+### Required: Two Phases
 
-Let's just say, for simplicity's sake, that any snippet of JavaScript has to be compiled before (usually _right_ before!) it's executed. So, the JS compiler will take the program `var a = 2;` and compile it _first_, and then be ready to execute it, usually right away.
+To state it as simply as possible, the most important observation we can make about processing of JS programs is that it occurs in (at least) two phases: parsing/compilation first, then execution.
 
-## Understanding Scope
+The separation of a parsing/compilation phase from the subsequent execution phase is observable fact, not theory or opinion. While the JS specification does not require "compilation" explicitly, it requires behavior that is essentially only practical with a compile-then-execute approach.
 
-The way we will approach learning about scope is to think of the process in terms of a conversation. But, _who_ is having the conversation?
+There are three program characteristics you can observe to prove this to yourself: syntax errors, early errors, and hoisting.
 
-### The Cast
+#### Syntax Errors from the Start
 
-Let's meet the cast of characters that interact to process the program `var a = 2;`, so we understand their conversations that we'll listen in on shortly:
-
-1. _Engine_: responsible for start-to-finish compilation and execution of our JavaScript program.
-
-2. _Compiler_: one of _Engine_'s friends; handles all the dirty work of parsing and code-generation (see previous section).
-
-3. _Scope_: another friend of _Engine_; collects and maintains a look-up list of all the declared identifiers (variables), and enforces a strict set of rules as to how these are accessible to currently executing code.
-
-For you to _fully understand_ how JavaScript works, you need to begin to _think_ like _Engine_ (and friends) think, ask the questions they ask, and answer those questions the same.
-
-### Back & Forth
-
-When you see the program `var a = 2;`, you most likely think of that as one statement. But that's not how our new friend _Engine_ sees it. In fact, _Engine_ sees two distinct statements, one which _Compiler_ will handle during compilation, and one which _Engine_ will handle during execution.
-
-So, let's break down how _Engine_ and friends will approach the program `var a = 2;`.
-
-The first thing _Compiler_ will do with this program is perform lexing to break it down into tokens, which it will then parse into a tree. But when _Compiler_ gets to code-generation, it will treat this program somewhat differently than perhaps assumed.
-
-A reasonable assumption would be that _Compiler_ will produce code that could be summed up by this pseudo-code: "Allocate memory for a variable, label it `a`, then stick the value `2` into that variable." Unfortunately, that's not quite accurate.
-
-_Compiler_ will instead proceed as:
-
-1. Encountering `var a`, _Compiler_ asks _Scope_ to see if a variable `a` already exists for that particular scope collection. If so, _Compiler_ ignores this declaration and moves on. Otherwise, _Compiler_ asks _Scope_ to declare a new variable called `a` for that scope collection.
-
-2. _Compiler_ then produces code for _Engine_ to later execute, to handle the `a = 2` assignment. The code _Engine_ runs will first ask _Scope_ if there is a variable called `a` accessible in the current scope collection. If so, _Engine_ uses that variable. If not, _Engine_ looks _elsewhere_ (see nested _Scope_ section below).
-
-If _Engine_ eventually finds a variable, it assigns the value `2` to it. If not, _Engine_ will raise its hand and yell out an error!
-
-To summarize: two distinct actions are taken for a variable assignment: First, _Compiler_ declares a variable (if not previously declared in the current scope), and second, when executing, _Engine_ looks up the variable in _Scope_ and assigns to it, if found.
-
-### Compiler Speak
-
-We need a little bit more compiler terminology to proceed further with understanding.
-
-When _Engine_ executes the code that _Compiler_ produced for step (2), it has to look-up the variable `a` to see if it has been declared, and this look-up is consulting _Scope_. But the type of look-up _Engine_ performs affects the outcome of the look-up.
-
-In our case, it is said that _Engine_ would be performing an "LHS" look-up for the variable `a`. The other type of look-up is called "RHS".
-
-I bet you can guess what the "L" and "R" mean. These terms stand for "Left-hand Side" and "Right-hand Side".
-
-Side... of what? **Of an assignment operation.**
-
-In other words, an LHS look-up is done when a variable appears on the left-hand side of an assignment operation, and an RHS look-up is done when a variable appears on the right-hand side of an assignment operation.
-
-Actually, let's be a little more precise. An RHS look-up is indistinguishable, for our purposes, from simply a look-up of the value of some variable, whereas the LHS look-up is trying to find the variable container itself, so that it can assign. In this way, RHS doesn't _really_ mean "right-hand side of an assignment" per se, it just, more accurately, means "not left-hand side".
-
-Being slightly glib for a moment, you could also think "RHS" instead means "retrieve his/her source (value)", implying that RHS means "go get the value of...".
-
-Let's dig into that deeper.
-
-When I say:
+Consider this program:
 
 ```js
-console.log(a);
+var greeting = "Hello";
+
+console.log(greeting);
+
+greeting = ."Hi";
+// SyntaxError: unexpected token .
 ```
 
-The reference to `a` is an RHS reference, because nothing is being assigned to `a` here. Instead, we're looking-up to retrieve the value of `a`, so that the value can be passed to `console.log(..)`.
+This program produces no output (`"Hello"` is not printed), but instead throws a `SyntaxError` about the unexpected `.` token right before the `"Hi"` string. Since the syntax error happens after the well-formed `console.log(..)` statement, if JS was executing top-down line by line, one would expect the `"Hello"` message being printed before the syntax error being thrown. That doesn't happen.
 
-By contrast:
+In fact, the only way the JS engine could know about the syntax error on the third line, before executing the first and second lines, is by the JS engine first parsing the entire program before any of it is executed.
+
+#### Early Errors
+
+Next, consider:
 
 ```js
-a = 2;
+console.log('Howdy');
+
+saySomething('Hello', 'Hi');
+// Uncaught SyntaxError: Duplicate parameter name not
+// allowed in this context
+
+function saySomething(greeting, greeting) {
+	'use strict';
+	console.log(greeting);
+}
 ```
 
-The reference to `a` here is an LHS reference, because we don't actually care what the current value is, we simply want to find the variable as a target for the `= 2` assignment operation.
+The `"Howdy"` message is not printed, despite being a well-formed statement.
 
-**Note:** LHS and RHS meaning "left/right-hand side of an assignment" doesn't necessarily literally mean "left/right side of the `=` assignment operator". There are several other ways that assignments happen, and so it's better to conceptually think about it as: "who's the target of the assignment (LHS)" and "who's the source of the assignment (RHS)".
+Instead, just like the snippet in the previous section, the `SyntaxError` here is thrown before the program is executed. In this case, it's because strict-mode (opted in for only the `saySomething(..)` function here) forbids, among many other things, functions to have duplicate parameter names; this has always been allowed in non-strict-mode.
 
-Consider this program, which has both LHS and RHS references:
+The error thrown is not a syntax error in the sense of being a malformed string of tokens (like `."Hi"` prior), but in strict-mode is nonetheless required by the specification to be thrown as an "early error" before any execution begins.
+
+But how does the JS engine know that the `greeting` parameter has been duplicated? How does it know that the `saySomething(..)` function is even in strict-mode while processing the parameter list (the `"use strict"` pragma appears only later, in the function body)?
+
+Again, the only reasonable explanation is that the code must first be _fully_ parsed before any execution occurs.
+
+#### Hoisting
+
+Finally, consider:
 
 ```js
-function foo(a) {
-	console.log(a); // 2
+function saySomething() {
+	var greeting = 'Hello';
+	{
+		greeting = 'Howdy'; // error comes from here
+		let greeting = 'Hi';
+		console.log(greeting);
+	}
 }
 
-foo(2);
+saySomething();
+// ReferenceError: Cannot access 'greeting' before
+// initialization
 ```
 
-The last line that invokes `foo(..)` as a function call requires an RHS reference to `foo`, meaning, "go look-up the value of `foo`, and give it to me." Moreover, `(..)` means the value of `foo` should be executed, so it'd better actually be a function!
+The noted `ReferenceError` occurs from the line with the statement `greeting = "Howdy"`. What's happening is that the `greeting` variable for that statement belongs to the declaration on the next line, `let greeting = "Hi"`, rather than to the previous `var greeting = "Hello"` statement.
 
-There's a subtle but important assignment here. **Did you spot it?**
+The only way the JS engine could know, at the line where the error is thrown, that the _next statement_ would declare a block-scoped variable of the same name (`greeting`) is if the JS engine had already processed this code in an earlier pass, and already set up all the scopes and their variable associations. This processing of scopes and declarations can only accurately be accomplished by parsing the program before execution.
 
-You may have missed the implied `a = 2` in this code snippet. It happens when the value `2` is passed as an argument to the `foo(..)` function, in which case the `2` value is **assigned** to the parameter `a`. To (implicitly) assign to parameter `a`, an LHS look-up is performed.
+The `ReferenceError` here technically comes from `greeting = "Howdy"` accessing the `greeting` variable **too early**, a conflict referred to as the Temporal Dead Zone (TDZ). Chapter 5 will cover this in more detail.
 
-There's also an RHS reference for the value of `a`, and that resulting value is passed to `console.log(..)`. `console.log(..)` needs a reference to execute. It's an RHS look-up for the `console` object, then a property-resolution occurs to see if it has a method called `log`.
+| WARNING:                                                                                                                                                                                                                                        |
+| :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| It's often asserted that `let` and `const` declarations are not hoisted, as an explanation of the TDZ behavior just illustrated. But this is not accurate. We'll come back and explain both the hoisting and TDZ of `let`/`const` in Chapter 5. |
 
-Finally, we can conceptualize that there's an LHS/RHS exchange of passing the value `2` (by way of variable `a`'s RHS look-up) into `log(..)`. Inside of the native implementation of `log(..)`, we can assume it has parameters, the first of which (perhaps called `arg1`) has an LHS reference look-up, before assigning `2` to it.
+Hopefully you're now convinced that JS programs are parsed before any execution begins. But does it prove they are compiled?
 
-**Note:** You might be tempted to conceptualize the function declaration `function foo(a) {...` as a normal variable declaration and assignment, such as `var foo` and `foo = function(a){...`. In so doing, it would be tempting to think of this function declaration as involving an LHS look-up.
+This is an interesting question to ponder. Could JS parse a program, but then execute that program by _interpreting_ operations represented in the AST **without** first compiling the program? Yes, that is _possible_. But it's extremely unlikely, mostly because it would be extremely inefficient performance wise.
 
-However, the subtle but important difference is that _Compiler_ handles both the declaration and the value definition during code-generation, such that when _Engine_ is executing code, there's no processing necessary to "assign" a function value to `foo`. Thus, it's not really appropriate to think of a function declaration as an LHS look-up assignment in the way we're discussing them here.
+It's hard to imagine a production-quality JS engine going to all the trouble of parsing a program into an AST, but not then converting (aka, "compiling") that AST into the most efficient (binary) representation for the engine to then execute.
 
-### Engine/Scope Conversation
+Many have endeavored to split hairs with this terminology, as there's plenty of nuance and "well, actually..." interjections floating around. But in spirit and in practice, what the engine is doing in processing JS programs is **much more alike compilation** than not.
+
+Classifying JS as a compiled language is not concerned with the distribution model for its binary (or byte-code) executable representations, but rather in keeping a clear distinction in our minds about the phase where JS code is processed and analyzed; this phase observably and indisputedly happens _before_ the code starts to be executed.
+
+We need proper mental models of how the JS engine treats our code if we want to understand JS and scope effectively.
+
+## Compiler Speak
+
+With awareness of the two-phase processing of a JS program (compile, then execute), let's turn our attention to how the JS engine identifies variables and determines the scopes of a program as it is compiled.
+
+First, let's examine a simple JS program to use for analysis over the next several chapters:
 
 ```js
-function foo(a) {
-	console.log(a); // 2
+var students = [
+	{ id: 14, name: 'Kyle' },
+	{ id: 73, name: 'Suzy' },
+	{ id: 112, name: 'Frank' },
+	{ id: 6, name: 'Sarah' }
+];
+
+function getStudentName(studentID) {
+	for (let student of students) {
+		if (student.id == studentID) {
+			return student.name;
+		}
+	}
 }
 
-foo(2);
+var nextStudent = getStudentName(73);
+
+console.log(nextStudent);
+// Suzy
 ```
 
-Let's imagine the above exchange (which processes this code snippet) as a conversation. The conversation would go a little something like this:
+Other than declarations, all occurrences of variables/identifiers in a program serve in one of two "roles": either they're the _target_ of an assignment or they're the _source_ of a value.
 
-> **_Engine_**: Hey _Scope_, I have an RHS reference for `foo`. Ever heard of it?
+(When I first learned compiler theory while earning my computer science degree, we were taught the terms "LHS" (aka, _target_) and "RHS" (aka, _source_) for these roles, respectively. As you might guess from the "L" and the "R", the acronyms mean "Left-Hand Side" and "Right-Hand Side", as in left and right sides of an `=` assignment operator. However, assignment targets and sources don't always literally appear on the left or right of an `=`, so it's probably clearer to think in terms of _target_ / _source_ rather than _left_ / _right_.)
 
-> **_Scope_**: Why yes, I have. _Compiler_ declared it just a second ago. He's a function. Here you go.
+How do you know if a variable is a _target_? Check if there is a value that is being assigned to it; if so, it's a _target_. If not, then the variable is a _source_.
 
-> **_Engine_**: Great, thanks! OK, I'm executing `foo`.
+For the JS engine to properly handle a program's variables, it must first label each occurrence of a variable as _target_ or _source_. We'll dig in now to how each role is determined.
 
-> **_Engine_**: Hey, _Scope_, I've got an LHS reference for `a`, ever heard of it?
+### Targets
 
-> **_Scope_**: Why yes, I have. _Compiler_ declared it as a formal parameter to `foo` just recently. Here you go.
-
-> **_Engine_**: Helpful as always, _Scope_. Thanks again. Now, time to assign `2` to `a`.
-
-> **_Engine_**: Hey, _Scope_, sorry to bother you again. I need an RHS look-up for `console`. Ever heard of it?
-
-> **_Scope_**: No problem, _Engine_, this is what I do all day. Yes, I've got `console`. He's built-in. Here ya go.
-
-> **_Engine_**: Perfect. Looking up `log(..)`. OK, great, it's a function.
-
-> **_Engine_**: Yo, _Scope_. Can you help me out with an RHS reference to `a`. I think I remember it, but just want to double-check.
-
-> **_Scope_**: You're right, _Engine_. Same guy, hasn't changed. Here ya go.
-
-> **_Engine_**: Cool. Passing the value of `a`, which is `2`, into `log(..)`.
-
-> ...
-
-### Quiz
-
-Check your understanding so far. Make sure to play the part of _Engine_ and have a "conversation" with the _Scope_:
+What makes a variable a _target_? Consider:
 
 ```js
-function foo(a) {
-	var b = a;
-	return a + b;
-}
-
-var c = foo(2);
+students = [ // ..
 ```
 
-1. Identify all the LHS look-ups (there are 3!).
+This statement is clearly an assignment operation; remember, the `var students` part is handled entirely as a declaration at compile time, and is thus irrelevant during execution; we left it out for clarity and focus. Same with the `nextStudent = getStudentName(73)` statement.
 
-2. Identify all the RHS look-ups (there are 4!).
-
-**Note:** See the chapter review for the quiz answers!
-
-## Nested Scope
-
-We said that _Scope_ is a set of rules for looking up variables by their identifier name. There's usually more than one _Scope_ to consider, however.
-
-Just as a block or function is nested inside another block or function, scopes are nested inside other scopes. So, if a variable cannot be found in the immediate scope, _Engine_ consults the next outer containing scope, continuing until found or until the outermost (aka, global) scope has been reached.
-
-Consider:
+But there are three other _target_ assignment operations in the code that are perhaps less obvious. One of them:
 
 ```js
-function foo(a) {
-	console.log(a + b);
-}
-
-var b = 2;
-
-foo(2); // 4
+for (let student of students) {
 ```
 
-The RHS reference for `b` cannot be resolved inside the function `foo`, but it can be resolved in the _Scope_ surrounding it (in this case, the global).
-
-So, revisiting the conversations between _Engine_ and _Scope_, we'd overhear:
-
-> **_Engine_**: "Hey, _Scope_ of `foo`, ever heard of `b`? Got an RHS reference for it."
-
-> **_Scope_**: "Nope, never heard of it. Go fish."
-
-> **_Engine_**: "Hey, _Scope_ outside of `foo`, oh you're the global _Scope_, ok cool. Ever heard of `b`? Got an RHS reference for it."
-
-> **_Scope_**: "Yep, sure have. Here ya go."
-
-The simple rules for traversing nested _Scope_: _Engine_ starts at the currently executing _Scope_, looks for the variable there, then if not found, keeps going up one level, and so on. If the outermost global scope is reached, the search stops, whether it finds the variable or not.
-
-### Building on Metaphors
-
-To visualize the process of nested _Scope_ resolution, I want you to think of this tall building.
-
-![Image](./img/fig1.png)
-
-The building represents our program's nested _Scope_ rule set. The first floor of the building represents your currently executing _Scope_, wherever you are. The top level of the building is the global _Scope_.
-
-You resolve LHS and RHS references by looking on your current floor, and if you don't find it, taking the elevator to the next floor, looking there, then the next, and so on. Once you get to the top floor (the global _Scope_), you either find what you're looking for, or you don't. But you have to stop regardless.
-
-## Errors
-
-Why does it matter whether we call it LHS or RHS?
-
-Because these two types of look-ups behave differently in the circumstance where the variable has not yet been declared (is not found in any consulted _Scope_).
-
-Consider:
+That statement assigns a value to `student` for each iteration of the loop. Another _target_ reference:
 
 ```js
-function foo(a) {
-	console.log(a + b);
-	b = a;
-}
-
-foo(2);
+getStudentName(73);
 ```
 
-When the RHS look-up occurs for `b` the first time, it will not be found. This is said to be an "undeclared" variable, because it is not found in the scope.
+But how is that an assignment to a _target_? Look closely: the argument `73` is assigned to the parameter `studentID`.
 
-If an RHS look-up fails to ever find a variable, anywhere in the nested *Scope*s, this results in a `ReferenceError` being thrown by the _Engine_. It's important to note that the error is of the type `ReferenceError`.
+And there's one last (subtle) _target_ reference in our program. Can you spot it?
 
-By contrast, if the _Engine_ is performing an LHS look-up and arrives at the top floor (global _Scope_) without finding it, and if the program is not running in "Strict Mode" [^note-strictmode], then the global _Scope_ will create a new variable of that name **in the global scope**, and hand it back to _Engine_.
+..
 
-_"No, there wasn't one before, but I was helpful and created one for you."_
+..
 
-"Strict Mode" [^note-strictmode], which was added in ES5, has a number of different behaviors from normal/relaxed/lazy mode. One such behavior is that it disallows the automatic/implicit global variable creation. In that case, there would be no global _Scope_'d variable to hand back from an LHS look-up, and _Engine_ would throw a `ReferenceError` similarly to the RHS case.
+..
 
-Now, if a variable is found for an RHS look-up, but you try to do something with its value that is impossible, such as trying to execute-as-function a non-function value, or reference a property on a `null` or `undefined` value, then _Engine_ throws a different kind of error, called a `TypeError`.
-
-`ReferenceError` is _Scope_ resolution-failure related, whereas `TypeError` implies that _Scope_ resolution was successful, but that there was an illegal/impossible action attempted against the result.
-
-## Review (TL;DR)
-
-Scope is the set of rules that determines where and how a variable (identifier) can be looked-up. This look-up may be for the purposes of assigning to the variable, which is an LHS (left-hand-side) reference, or it may be for the purposes of retrieving its value, which is an RHS (right-hand-side) reference.
-
-LHS references result from assignment operations. _Scope_-related assignments can occur either with the `=` operator or by passing arguments to (assign to) function parameters.
-
-The JavaScript _Engine_ first compiles code before it executes, and in so doing, it splits up statements like `var a = 2;` into two separate steps:
-
-1. First, `var a` to declare it in that _Scope_. This is performed at the beginning, before code execution.
-
-2. Later, `a = 2` to look up the variable (LHS reference) and assign to it if found.
-
-Both LHS and RHS reference look-ups start at the currently executing _Scope_, and if need be (that is, they don't find what they're looking for there), they work their way up the nested _Scope_, one scope (floor) at a time, looking for the identifier, until they get to the global (top floor) and stop, and either find it, or don't.
-
-Unfulfilled RHS references result in `ReferenceError`s being thrown. Unfulfilled LHS references result in an automatic, implicitly-created global of that name (if not in "Strict Mode" [^note-strictmode]), or a `ReferenceError` (if in "Strict Mode" [^note-strictmode]).
-
-### Quiz Answers
+Did you identify this one?
 
 ```js
-function foo(a) {
-	var b = a;
-	return a + b;
-}
-
-var c = foo(2);
+function getStudentName(studentID) {
 ```
 
-1. Identify all the LHS look-ups (there are 3!).
+A `function` declaration is a special case of a _target_ reference. You can think of it sort of like `var getStudentName = function(studentID)`, but that's not exactly accurate. An identifier `getStudentName` is declared (at compile time), but the `= function(studentID)` part is also handled at compilation; the association between `getStudentName` and the function is automatically set up at the beginning of the scope rather than waiting for an `=` assignment statement to be executed.
 
-    **`c = ..`, `a = 2` (implicit param assignment) and `b = ..`**
+| NOTE:                                                                                                                             |
+| :-------------------------------------------------------------------------------------------------------------------------------- |
+| This automatic association of function and variable is referred to as "function hoisting", and is covered in detail in Chapter 5. |
 
-2. Identify all the RHS look-ups (there are 4!).
+### Sources
 
-    **`foo(2..`, `= a;`, `a + ..` and `.. + b`**
+So we've identified all five _target_ references in the program. The other variable references must then be _source_ references (because that's the only other option!).
 
-[^note-strictmode]: MDN: [Strict Mode](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions_and_function_scope/Strict_mode)
+In `for (let student of students)`, we said that `student` is a _target_, but `students` is a _source_ reference. In the statement `if (student.id == studentID)`, both `student` and `studentID` are _source_ references. `student` is also a _source_ reference in `return student.name`.
+
+In `getStudentName(73)`, `getStudentName` is a _source_ reference (which we hope resolves to a function reference value). In `console.log(nextStudent)`, `console` is a _source_ reference, as is `nextStudent`.
+
+| NOTE:                                                                                            |
+| :----------------------------------------------------------------------------------------------- |
+| In case you were wondering, `id`, `name`, and `log` are all properties, not variable references. |
+
+What's the practical importance of understanding _targets_ vs. _sources_? In Chapter 2, we'll revisit this topic and cover how a variable's role impacts its lookup (specifically, if the lookup fails).
+
+## Cheating: Runtime Scope Modifications
+
+It should be clear by now that scope is determined as the program is compiled, and should not generally be affected by runtime conditions. However, in non-strict-mode, there are technically still two ways to cheat this rule, modifying a program's scopes during runtime.
+
+Neither of these techniques _should_ be used—they're both dangerous and confusing, and you should be using strict-mode (where they're disallowed) anyway. But it's important to be aware of them in case you run across them in some programs.
+
+The `eval(..)` function receives a string of code to compile and execute on the fly during the program runtime. If that string of code has a `var` or `function` declaration in it, those declarations will modify the current scope that the `eval(..)` is currently executing in:
+
+```js
+function badIdea() {
+	eval("var oops = 'Ugh!';");
+	console.log(oops);
+}
+badIdea(); // Ugh!
+```
+
+If the `eval(..)` had not been present, the `oops` variable in `console.log(oops)` would not exist, and would throw a `ReferenceError`. But `eval(..)` modifies the scope of the `badIdea()` function at runtime. This is bad for many reasons, including the performance hit of modifying the already compiled and optimized scope, every time `badIdea()` runs.
+
+The second cheat is the `with` keyword, which essentially dynamically turns an object into a local scope—its properties are treated as identifiers in that new scope's block:
+
+```js
+var badIdea = { oops: 'Ugh!' };
+
+with (badIdea) {
+	console.log(oops); // Ugh!
+}
+```
+
+The global scope was not modified here, but `badIdea` was turned into a scope at runtime rather than compile time, and its property `oops` becomes a variable in that scope. Again, this is a terrible idea, for performance and readability reasons.
+
+At all costs, avoid `eval(..)` (at least, `eval(..)` creating declarations) and `with`. Again, neither of these cheats is available in strict-mode, so if you just use strict-mode (you should!) then the temptation goes away!
+
+## Lexical Scope
+
+We've demonstrated that JS's scope is determined at compile time; the term for this kind of scope is "lexical scope". "Lexical" is associated with the "lexing" stage of compilation, as discussed earlier in this chapter.
+
+To narrow this chapter down to a useful conclusion, the key idea of "lexical scope" is that it's controlled entirely by the placement of functions, blocks, and variable declarations, in relation to one another.
+
+If you place a variable declaration inside a function, the compiler handles this declaration as it's parsing the function, and associates that declaration with the function's scope. If a variable is block-scope declared (`let` / `const`), then it's associated with the nearest enclosing `{ .. }` block, rather than its enclosing function (as with `var`).
+
+Furthermore, a reference (_target_ or _source_ role) for a variable must be resolved as coming from one of the scopes that are _lexically available_ to it; otherwise the variable is said to be "undeclared" (which usually results in an error!). If the variable is not declared in the current scope, the next outer/enclosing scope will be consulted. This process of stepping out one level of scope nesting continues until either a matching variable declaration can be found, or the global scope is reached and there's nowhere else to go.
+
+It's important to note that compilation doesn't actually _do anything_ in terms of reserving memory for scopes and variables. None of the program has been executed yet.
+
+Instead, compilation creates a map of all the lexical scopes that lays out what the program will need while it executes. You can think of this plan as inserted code for use at runtime, which defines all the scopes (aka, "lexical environments") and registers all the identifiers (variables) for each scope.
+
+In other words, while scopes are identified during compilation, they're not actually created until runtime, each time a scope needs to run. In the next chapter, we'll sketch out the conceptual foundations for lexical scope.
